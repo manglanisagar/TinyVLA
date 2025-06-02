@@ -65,9 +65,9 @@ class EpisodicDataset(torch.utils.data.Dataset):
             self.augment_images = False
         self.transformations = None
         a = self.__getitem__(0) # initialize self.is_sim and self.transformations
-        if len(a['image_top'].shape) == 4:
-            print("%"*40)
-            print("There are three views: left, right, top")
+        #if len(a['image_top'].shape) == 4:
+        #    print("%"*40)
+        #    print("There are three views: left, right, top")
         # is_sim indicates whether the data comes from a simulation environment.
         self.is_sim = False
 
@@ -282,9 +282,11 @@ class LlavaPythiaProcess:
 
         images_all = torch.chunk(image, image.shape[0], dim=0)
         data_dict['image'] = images_all[0]
-        data_dict['image_r'] = images_all[1]
+        if len(images_all) > 1:
+            data_dict['image_r'] = images_all[1]
+        else:
+            data_dict['image_r'] = images_all[0]
         if image.shape[0] == 3:
-
             data_dict['image_top'] = images_all[2]
         data_dict['state'] = sample['state']
         data_dict['action'] = sample['action']

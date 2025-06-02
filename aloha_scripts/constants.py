@@ -4,14 +4,15 @@
 # DATA_DIR = '/path/to/your/data_dir'
 
 TASK_CONFIGS = {
-    'example_task_config': { # for local debug
+    'spot_dummy_test': {
         'dataset_dir': [
-            "/media/rl/HDD/data/data/act/new_view/8_29_tennis", # task 1
+            "/home/sagar/projects/TinyVLA/datasets/spot_dummy_test",  # update this with the actual full path
         ],
-        'episode_len': 1000,  # 1000,
-        'camera_names': ['left', 'right', 'wrist'] # corresponding to image keys saved in h5py files
+        'episode_len': 200,  # your dataset has 200 frames
+        'camera_names': ['front'],  # only 'front' is used in your HDF5 file
     },
 }
+
 ####################################################################################
 
 #!!!!!!!!!!!!!!!!!!!!!!Followings are copied from aloha which are not used!!!!!!!!!!!!!!!!!!!!!!
