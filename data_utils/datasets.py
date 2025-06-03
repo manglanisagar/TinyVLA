@@ -95,44 +95,40 @@ class EpisodicDataset(torch.utils.data.Dataset):
         """
         episode_id, start_ts = self._locate_transition(index)
         dataset_path = self.dataset_path_list[episode_id]
-        # open the corresponding HDF5 file and read the necessary data attributes.
         with h5py.File(dataset_path, 'r') as root:
-            try: # some legacy data does not have this attribute
+            try:
                 is_sim = root.attrs['sim']
             except:
                 is_sim = False
             compressed = root.attrs.get('compress', False)
-
             raw_lang = root['language_raw'][0].decode('utf-8')
-
             action = root['/action'][()]
             original_action_shape = action.shape
             episode_len = original_action_shape[0]
 
-            # qpos represents the robot's position (e.g., joint angles) at the given timestamp (start_ts),
-            # qvel represents the robot's velocity (e.g., joint velocities) at the same timestamp.
-            # get observation at start_ts only
-            qpos = root['/observations/qpos'][start_ts]
+            # Use qvel instead of qpos, and extract [vx, vy, omega]
             qvel = root['/observations/qvel'][start_ts]
-            image_dict = dict()
+            state = np.array([qvel[0], qvel[1], qvel[5]], dtype=np.float32)
+
+            image_dict = {}
             for cam_name in self.camera_names:
                 image_dict[cam_name] = root[f'/observations/images/{cam_name}'][start_ts]
                 if self.imsize != image_dict[cam_name].shape[1]:
                     image_dict[cam_name] = cv2.resize(image_dict[cam_name], (320, 180))
 
             if compressed:
-                for cam_name in image_dict.keys():
+                for cam_name in image_dict:
                     decompressed_image = cv2.imdecode(image_dict[cam_name], 1)
                     image_dict[cam_name] = np.array(decompressed_image)
 
-            # get all actions after and including start_ts
+            # Slice actions
             if is_sim:
                 action = action[start_ts:]
                 action_len = episode_len - start_ts
             else:
-                action = action[max(0, start_ts - 1):] # hack, to make timesteps more aligned
-                action_len = episode_len - max(0, start_ts - 1) # hack, to make timesteps more aligned
-        # pad actions to ensure consistent episode lengths.
+                action = action[max(0, start_ts - 1):]
+                action_len = episode_len - max(0, start_ts - 1)
+
         padded_action = np.zeros((self.max_episode_len, original_action_shape[1]), dtype=np.float32)
         padded_action[:action_len] = action
         is_pad = np.zeros(self.max_episode_len)
@@ -141,26 +137,19 @@ class EpisodicDataset(torch.utils.data.Dataset):
         padded_action = padded_action[:self.chunk_size]
         is_pad = is_pad[:self.chunk_size]
 
-        # new axis for different cameras
-        all_cam_images = []
-        for cam_name in self.camera_names:
-            all_cam_images.append(image_dict[cam_name])
+        all_cam_images = [image_dict[cam] for cam in self.camera_names]
         all_cam_images = np.stack(all_cam_images, axis=0)
 
-        # construct observations
         image_data = torch.from_numpy(all_cam_images)
-        qpos_data = torch.from_numpy(qpos).float()
+        state_data = torch.from_numpy(state).float()
         action_data = torch.from_numpy(padded_action).float()
         is_pad = torch.from_numpy(is_pad).bool()
 
-        # convert the image data from BGR to RGB format 
         if 'top' in self.camera_names:
             image_data = torch.stack([torch.from_numpy(cv2.cvtColor(img.numpy(), cv2.COLOR_BGR2RGB)) for img in image_data], dim=0)
 
-        # channel last
         image_data = torch.einsum('k h w c -> k c h w', image_data)
 
-        # augmentation
         if self.transformations is None:
             print('Initializing transformations')
             original_size = image_data.shape[2:]
@@ -169,36 +158,35 @@ class EpisodicDataset(torch.utils.data.Dataset):
                 transforms.RandomCrop(size=[int(original_size[0] * ratio), int(original_size[1] * ratio)]),
                 transforms.Resize(original_size, antialias=True),
                 transforms.RandomRotation(degrees=[-5.0, 5.0], expand=False),
-                transforms.ColorJitter(brightness=0.3, contrast=0.4, saturation=0.5) #, hue=0.08)
+                transforms.ColorJitter(brightness=0.3, contrast=0.4, saturation=0.5)
             ]
 
         if self.augment_images:
             for transform in self.transformations:
                 image_data = transform(image_data)
 
-        # normalize image and change dtype to float
         image_data = image_data / 255.0
 
-        if 'diffusion' in self.policy_class: # for diffusion
-            # normalize to [-1, 1]
+        if 'diffusion' in self.policy_class:
             action_data = ((action_data - self.norm_stats["action_min"]) / (self.norm_stats["action_max"] - self.norm_stats["action_min"])) * 2 - 1
-        else: # for act
-            # normalize to mean 0 std 1
+        else:
             action_data = (action_data - self.norm_stats["action_mean"]) / self.norm_stats["action_std"]
 
-        qpos_data = (qpos_data - self.norm_stats["qpos_mean"]) / self.norm_stats["qpos_std"]
+        state_data = (state_data - self.norm_stats["qpos_mean"]) / self.norm_stats["qpos_std"]
+
         if self.policy_class == 'ACT':
-            return image_data, qpos_data, action_data, is_pad
+            return image_data, state_data, action_data, is_pad
+
         sample = {
             'image': image_data,
-            'state': qpos_data,
+            'state': state_data,
             'action': action_data,
             'is_pad': is_pad,
             'raw_lang': raw_lang
         }
-        assert raw_lang is not None, ""
+        assert raw_lang is not None
         return self.llava_pythia_process.forward_process(sample)
-        # print(image_data.dtype, qpos_data.dtype, action_data.dtype, is_pad.dtype)
+
 
 
 class LlavaPythiaProcess:
@@ -330,46 +318,51 @@ def get_norm_stats(dataset_path_list):
     Raises:
         Exception: If there is an error loading a dataset file, the function will print an error message and terminate the program.
     """
-    all_qpos_data = []
+    all_state_data = []
     all_action_data = []
     all_episode_len = []
 
     for dataset_path in dataset_path_list:
         try:
             with h5py.File(dataset_path, 'r') as root:
-                qpos = root['/observations/qpos'][()]
                 qvel = root['/observations/qvel'][()]
+                state = qvel[:, [0, 1, 5]]  # vx, vy, omega
                 action = root['/action'][()]
         except Exception as e:
             print(f'Error loading {dataset_path} in get_norm_stats')
             print(e)
             quit()
-        all_qpos_data.append(torch.from_numpy(qpos))
+        all_state_data.append(torch.from_numpy(state))
         all_action_data.append(torch.from_numpy(action))
-        all_episode_len.append(len(qpos))
-    all_qpos_data = torch.cat(all_qpos_data, dim=0)
+        all_episode_len.append(len(state))
+
+    all_state_data = torch.cat(all_state_data, dim=0)
     all_action_data = torch.cat(all_action_data, dim=0)
 
-    # normalize action data
-    action_mean = all_action_data.mean(dim=[0]).float()
-    action_std = all_action_data.std(dim=[0]).float()
-    action_std = torch.clip(action_std, 1e-2, np.inf) # clipping
+    action_mean = all_action_data.mean(dim=0).float()
+    action_std = all_action_data.std(dim=0).float()
+    action_std = torch.clip(action_std, 1e-2, np.inf)
 
-    # normalize qpos data
-    qpos_mean = all_qpos_data.mean(dim=[0]).float()
-    qpos_std = all_qpos_data.std(dim=[0]).float()
-    qpos_std = torch.clip(qpos_std, 1e-2, np.inf) # clipping
+    state_mean = all_state_data.mean(dim=0).float()
+    state_std = all_state_data.std(dim=0).float()
+    state_std = torch.clip(state_std, 1e-2, np.inf)
 
     action_min = all_action_data.min(dim=0).values.float()
     action_max = all_action_data.max(dim=0).values.float()
 
-    eps = 0.0001
-    stats = {"action_mean": action_mean.numpy(), "action_std": action_std.numpy(),
-             "action_min": action_min.numpy() - eps,"action_max": action_max.numpy() + eps,
-             "qpos_mean": qpos_mean.numpy(), "qpos_std": qpos_std.numpy(),
-             "example_qpos": qpos}
+    eps = 1e-4
+    stats = {
+        "action_mean": action_mean.numpy(),
+        "action_std": action_std.numpy(),
+        "action_min": action_min.numpy() - eps,
+        "action_max": action_max.numpy() + eps,
+        "qpos_mean": state_mean.numpy(),
+        "qpos_std": state_std.numpy(),
+        "example_qpos": state
+    }
 
     return stats, all_episode_len
+
 
 def find_all_hdf5(dataset_dir, skip_mirrored_data):
     hdf5_files = []

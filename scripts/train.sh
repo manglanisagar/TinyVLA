@@ -22,7 +22,7 @@ accelerate launch --deepspeed_config_file scripts/zero2.json ./train_tinyvla.py 
   --lora_r 64 \
   --lora_alpha 256 \
   --non_lora_lr 2e-5 \
-  --task_name "spot_dummy_test" \
+  --task_name "spot" \
   --model_name_or_path "/home/sagar/projects/TinyVLA/Llava-Pythia-400M" \
   --version v0 \
   --tune_mm_mlp_adapter True \
@@ -34,15 +34,15 @@ accelerate launch --deepspeed_config_file scripts/zero2.json ./train_tinyvla.py 
   --group_by_modality_length False \
   --bf16 True \
   --output_dir $OUTPUT \
-  --max_steps 1000 \
+  --max_steps 2500 \
   --per_device_train_batch_size 32 \
   --gradient_accumulation_steps 1 \
   --save_strategy "steps" \
   --save_steps 1000 \
   --save_total_limit 50 \
-  --learning_rate 2e-4 \
+  --learning_rate 3e-4 \
   --weight_decay 0. \
-  --warmup_ratio 0.005 \
+  --warmup_ratio 0.01 \
   --lr_scheduler_type "cosine" \
   --logging_steps 10 \
   --tf32 True \

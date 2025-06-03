@@ -4,12 +4,12 @@
 # DATA_DIR = '/path/to/your/data_dir'
 
 TASK_CONFIGS = {
-    'spot_dummy_test': {
+    'spot': {
         'dataset_dir': [
-            "/home/sagar/projects/TinyVLA/datasets/spot_dummy_test",  # update this with the actual full path
+            "/home/sagar/projects/TinyVLA/datasets/spot",  # update this with the actual full path
         ],
-        'episode_len': 200,  # your dataset has 200 frames
-        'camera_names': ['front'],  # only 'front' is used in your HDF5 file
+        'episode_len': 180,  
+        'camera_names': ['front'], 
     },
 }
 
