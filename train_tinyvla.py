@@ -26,8 +26,8 @@ local_rank = None
 @dataclass
 class ActionArguments:
     action_head_type: str = field(default="droid_diffusion") # action head type, 'act', 'droid_diffusion'
-    action_dim: int = field(default=10)
-    state_dim: int = field(default=7)
+    action_dim: int = field(default=3)
+    state_dim: int = field(default=3)
     chunk_size: int = field(default=16) # size of action chunk, same as mobile aloha
 
 @dataclass

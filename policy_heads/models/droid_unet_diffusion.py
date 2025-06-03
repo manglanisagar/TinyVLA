@@ -173,7 +173,7 @@ class ConditionalUnet1D(nn.Module):
         state_dim: Dimension of the state input.
     """
     def __init__(self, input_dim, global_cond_dim, diffusion_step_embed_dim=256,
-                 down_dims=[256, 512, 1024], kernel_size=5, n_groups=8, state_dim=7):
+                 down_dims=[256, 512, 1024], kernel_size=5, n_groups=8, state_dim=3):
         super().__init__()
         all_dims = [input_dim] + list(down_dims)
         start_dim = down_dims[0]
