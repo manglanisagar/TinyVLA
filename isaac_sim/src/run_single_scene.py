@@ -20,6 +20,7 @@ from pxr import Sdf, UsdLux, UsdGeom
 import omni.appwindow
 import omni.usd
 import omni.replicator.core as rep
+from omni.isaac.core.articulations import Articulation
 
 scene_idx = int(sys.argv[1])
 with open("/root/Documents/spot_63_scene_config.json", "r") as f:
@@ -102,17 +103,25 @@ writer = rep.WriterRegistry.get("BasicWriter")
 writer.initialize(output_dir=output_dir, rgb=True, semantic_segmentation=False)
 writer.attach([render_product])
 
-# CSV
+# CSV file for saving commands
 csv_path = os.path.join(output_dir, "commands.csv")
 csv_file = open(csv_path, mode="w", newline="")
 csv_writer = csv.writer(csv_file)
 csv_writer.writerow(["time", "vx", "vy", "omega"])
+
+# CSV file for saving robot velocity
+vel_csv_path = os.path.join(output_dir, "velocity.csv")
+vel_csv_file = open(vel_csv_path, mode="w", newline="")
+vel_csv_writer = csv.writer(vel_csv_file)
+vel_csv_writer.writerow(["time", "vx", "vy", "vz", "wx", "wy", "wz"])  # header
 
 # Simulation
 my_world.reset()
 my_world.add_physics_callback("physics_step", on_physics_step)
 start_time = my_world.current_time
 duration = 5
+spot_articulation = Articulation(prim_path="/World/Spot")
+
 
 while simulation_app.is_running() and my_world.current_time - start_time < duration:
     my_world.step(render=True)
@@ -143,7 +152,17 @@ while simulation_app.is_running() and my_world.current_time - start_time < durat
             base_command[:] = [0, 0, 0]
 
         csv_writer.writerow([my_world.current_time] + base_command.tolist())
+
+        lin_vel = spot_articulation.get_linear_velocity()
+        ang_vel = spot_articulation.get_angular_velocity()
+        vel_csv_writer.writerow([
+            my_world.current_time,
+            *lin_vel.tolist(),  # vx, vy, vz
+            *ang_vel.tolist()   # wx, wy, wz
+        ])
+
         i += 1
 
 csv_file.close()
+vel_csv_file.close()
 simulation_app.close()
